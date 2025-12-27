@@ -1,0 +1,81 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:13
+    container_name: postgres_ex
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: satou
+      POSTGRES_PASSWORD: satou
+      POSTGRES_DB: exam
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./sql_dir/script_sql:/docker-entrypoint-initdb.d:ro
+      - ./sql_dir/table:/var/lib/postgres/table
+
+  mongo:
+    image: mongo:6
+    build:
+      context: .
+      dockerfile: mongo.Dockerfile
+    container_name: mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: satou
+      MONGO_INITDB_ROOT_PASSWORD: satou
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb:/data/db
+
+  spark-master:
+    image: apache/spark:3.4.2
+    container_name: spark-master
+    hostname: spark-master
+    environment:
+      - SPARK_NO_DAEMONIZE=true
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.master.Master
+      --host spark-master
+    ports:
+      - "7077:7077"
+      - "9090:8080"
+
+  spark-worker:
+    image: apache/spark:3.4.2
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_NO_DAEMONIZE=true
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+    deploy:
+      replicas: 1
+
+  spark-submit:
+    image: apache/spark:3.4.2
+    user: root
+    environment:
+      - HOME=/root
+    depends_on:
+      - spark-master
+      - spark-worker
+    volumes:
+      - ./spark/jobs:/opt/spark/jobs:ro
+    entrypoint: [ "/opt/spark/bin/spark-submit" ]
+    command:
+      - "--packages"
+      - "org.postgresql:postgresql:42.6.0,org.mongodb.spark:mongo-spark-connector_2.12:10.2.0"
+      - "--master"
+      - "spark://spark-master:7077"
+      - "/opt/spark/jobs/product_analytics_monthly.py"
+
+volumes:
+  postgres:
+  mongodb:
